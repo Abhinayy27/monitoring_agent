@@ -38,6 +38,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Try to import Playwright for JS-rendered pages
+try:
+    from playwright.sync_api import sync_playwright
+
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    logger.warning(
+        "Playwright not available. JavaScript-rendered content may not load properly."
+    )
+
 
 def load_state() -> Dict[str, bool]:
     """Load state from state.json file."""
@@ -68,7 +79,31 @@ def save_state(state: Dict[str, bool]) -> None:
 
 
 def fetch_page(url: str) -> Optional[str]:
-    """Fetch the target page with a realistic User-Agent."""
+    """Fetch the target page, using Playwright if available for JS-rendered content."""
+    # Try Playwright first if available (for JS-rendered pages)
+    if PLAYWRIGHT_AVAILABLE:
+        try:
+            logger.info(f"Fetching page with Playwright (JS rendering): {url}")
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.set_extra_http_headers(
+                    {
+                        "User-Agent": USER_AGENT,
+                        "Accept-Language": "en-US,en;q=0.5",
+                    }
+                )
+                page.goto(url, wait_until="networkidle", timeout=30000)
+                # Wait a bit for content to load
+                page.wait_for_timeout(3000)
+                html_content = page.content()
+                browser.close()
+                logger.info("Successfully fetched page with Playwright")
+                return html_content
+        except Exception as e:
+            logger.warning(f"Playwright fetch failed: {e}. Falling back to requests.")
+
+    # Fallback to requests
     try:
         headers = {
             "User-Agent": USER_AGENT,
@@ -76,8 +111,9 @@ def fetch_page(url: str) -> Optional[str]:
             "Accept-Language": "en-US,en;q=0.5",
             "Accept-Encoding": "gzip, deflate",
             "Connection": "keep-alive",
+            "Referer": "https://ieeexplore.ieee.org/",
         }
-        logger.info(f"Fetching page: {url}")
+        logger.info(f"Fetching page with requests: {url}")
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         logger.info(f"Successfully fetched page (status: {response.status_code})")
@@ -96,30 +132,118 @@ def parse_proceedings(html_content: str) -> List[str]:
     try:
         soup = BeautifulSoup(html_content, "html.parser")
 
-        # Find the "All Proceedings" section
-        # Look for common patterns: headings, divs with specific classes, or list items
+        # Since the page is JS-rendered, look for any content containing ICONAT and years
+        # The proceedings might be in various formats in the HTML
+
+        entries = []
+
+        # Strategy 1: Look for any text containing both year patterns and ICONAT
+        # Search the entire page content for proceeding-like patterns
+        page_text = soup.get_text(separator="\n", strip=True)
+
+        # Look for lines/paragraphs that contain both year and conference keywords
+        lines = [line.strip() for line in page_text.split("\n") if line.strip()]
+
+        for i, line in enumerate(lines):
+            # Check if line contains a year
+            has_year = any(year in line for year in ["2022", "2023", "2024", "2025"])
+            # Check if line contains ICONAT or related keywords
+            line_lower = line.lower()
+            has_conference = any(
+                keyword in line_lower
+                for keyword in [
+                    "iconat",
+                    "international conference",
+                    "conference for advancement",
+                    "advancement in technology",
+                ]
+            )
+
+            if has_year and has_conference:
+                # Try to get the full entry (current line + next few lines if they seem related)
+                entry_text = line
+                # Look ahead a few lines for location or additional info
+                for j in range(1, 3):
+                    if i + j < len(lines):
+                        next_line = lines[i + j]
+                        # If next line looks like part of the entry (location, etc.)
+                        if (
+                            "location" in next_line.lower()
+                            or len(next_line) < 100
+                            or any(char.isdigit() for char in next_line[:10])
+                        ):
+                            entry_text += " " + next_line
+                        else:
+                            break
+                entries.append(entry_text.strip())
+
+        # Strategy 2: Look for specific HTML elements that might contain proceedings
+        # Check for list items, divs, or spans that contain year + ICONAT
+        if not entries:
+            for element in soup.find_all(["li", "div", "p", "span", "article"]):
+                text = element.get_text(separator=" ", strip=True)
+                if len(text) > 20:  # Reasonable length for an entry
+                    has_year = any(
+                        year in text for year in ["2022", "2023", "2024", "2025"]
+                    )
+                    text_lower = text.lower()
+                    has_conference = any(
+                        keyword in text_lower
+                        for keyword in [
+                            "iconat",
+                            "international conference",
+                            "conference for advancement",
+                        ]
+                    )
+                    if has_year and has_conference:
+                        entries.append(text)
+
+        # Strategy 3: Look for "All Proceedings" section specifically
         all_proceedings_section = None
 
-        # Strategy 1: Look for heading containing "All Proceedings"
-        headings = soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
+        # Look for heading containing "All Proceedings"
+        headings = soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "a", "button"])
         for heading in headings:
-            if heading and "All Proceedings" in heading.get_text():
-                # Find the parent container or next sibling container
-                parent = heading.find_parent()
+            text = heading.get_text(strip=True)
+            if (
+                "All Proceedings" in text
+                or "all-proceedings" in str(heading.get("href", "")).lower()
+            ):
+                # Find the parent container
+                parent = heading.find_parent(["div", "section", "article", "main"])
                 if parent:
                     all_proceedings_section = parent
                     break
 
-        # Strategy 2: Look for divs or sections with "All Proceedings" text
-        if not all_proceedings_section:
-            for div in soup.find_all(["div", "section"]):
-                text = div.get_text()
-                if "All Proceedings" in text:
-                    all_proceedings_section = div
-                    break
+        # If we found the section, extract entries from it
+        if all_proceedings_section:
+            section_entries = []
+            for element in all_proceedings_section.find_all(["li", "div", "p"]):
+                text = element.get_text(separator=" ", strip=True)
+                if len(text) > 20:
+                    if any(year in text for year in ["2022", "2023", "2024", "2025"]):
+                        section_entries.append(text)
+            if section_entries:
+                entries.extend(section_entries)
 
-        if not all_proceedings_section:
-            logger.warning("Could not find 'All Proceedings' section")
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_entries = []
+        for entry in entries:
+            entry_key = entry.lower()[:100]  # Use first 100 chars as key
+            if entry_key not in seen:
+                seen.add(entry_key)
+                unique_entries.append(entry)
+
+        if not unique_entries:
+            logger.warning("Could not find any proceeding entries in the page")
+            logger.debug(
+                f"Page content length: {len(html_content)}, Text length: {len(page_text)}"
+            )
+            # Log a sample of the page text for debugging
+            if page_text:
+                sample = page_text[:500] if len(page_text) > 500 else page_text
+                logger.debug(f"Page text sample: {sample}")
             return []
 
         # Extract individual proceeding entries
