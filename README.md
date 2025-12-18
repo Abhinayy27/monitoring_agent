@@ -4,18 +4,20 @@ An automated monitoring agent that tracks when IEEE Xplore publishes the 2025 pr
 
 ## Overview
 
-This project uses GitHub Actions to automatically check the IEEE Xplore website every 12 hours for the publication of ICONAT 2025 proceedings. When detected, it sends an email notification and updates its state to prevent duplicate notifications.
+This project uses GitHub Actions to automatically check the IEEE Xplore website twice daily (00:00 and 12:00 UTC) for the publication of ICONAT 2025 proceedings. When detected, it sends an email notification and updates its state to prevent duplicate notifications.
 
 **Target Page:** https://ieeexplore.ieee.org/xpl/conhome/1845744/all-proceedings
 
+**Email Recipient:** babhinay27@gmail.com
+
 ## How It Works
 
-1. **Scheduled Execution**: GitHub Actions runs the monitoring script every 12 hours (configurable)
+1. **Scheduled Execution**: GitHub Actions runs the monitoring script twice daily at **00:00 UTC (midnight)** and **12:00 UTC (noon)**
 2. **State Check**: The script first checks `state.json` to see if a notification has already been sent
-3. **Page Fetching**: If not notified, it fetches the IEEE Xplore page with a realistic User-Agent
-4. **HTML Parsing**: BeautifulSoup extracts the "All Proceedings" section and individual proceeding entries
-5. **Detection**: Checks if any proceeding entry contains both "2025" and "ICONAT" in the same entry
-6. **Notification**: If found, sends an email via Gmail SMTP
+3. **Page Fetching**: Uses **Playwright (headless browser)** to render JavaScript content and fetch the IEEE Xplore page. Falls back to `requests` if Playwright fails.
+4. **HTML Parsing**: BeautifulSoup extracts individual proceeding entries from the rendered page content
+5. **Detection**: Checks if any proceeding entry contains both "2025" and "ICONAT" in the same entry (e.g., "2025 4th International Conference for Advancement in Technology (ICONAT)")
+6. **Notification**: If found, sends an email via Gmail SMTP to `babhinay27@gmail.com`
 7. **State Update**: Updates `state.json` to mark as notified and commits it back to the repository
 
 ## Setup Instructions
@@ -72,20 +74,23 @@ You can manually trigger the workflow:
 
 ### Changing the Schedule Frequency
 
-To change from 12 hours to a different interval, edit `.github/workflows/monitor.yml`:
+The default schedule runs **twice daily** at specific times: **00:00 UTC** (midnight) and **12:00 UTC** (noon).
+
+To change the schedule, edit `.github/workflows/monitor.yml`:
 
 ```yaml
 schedule:
-  - cron: '0 */12 * * *'  # Every 12 hours
+  - cron: '0 */12 * * *'  # Twice daily at 00:00 and 12:00 UTC
 ```
 
 Common cron patterns:
-- `0 */6 * * *` - Every 6 hours
-- `0 */24 * * *` - Every 24 hours (once daily)
-- `0 9 * * *` - Every day at 9:00 AM UTC
+- `0 */6 * * *` - Four times daily (00:00, 06:00, 12:00, 18:00 UTC)
+- `0 */24 * * *` - Once daily at 00:00 UTC
+- `0 9 * * *` - Once daily at 9:00 AM UTC
 - `0 9,21 * * *` - Twice daily at 9:00 AM and 9:00 PM UTC
+- `0 0,6,12,18 * * *` - Four times daily at specific hours
 
-**Note:** GitHub Actions schedules may have slight delays (up to 15 minutes).
+**Important:** Cron schedules run at **specific UTC times**, not X hours from the last run. GitHub Actions may have slight delays (up to 15 minutes).
 
 ### Modifying Target URL or Keywords
 
@@ -99,10 +104,10 @@ TARGET_KEYWORD = "ICONAT"
 
 ### Changing Email Recipient
 
-Edit `checker.py`:
+Edit `checker.py` and change the recipient:
 
 ```python
-RECIPIENT_EMAIL = "your-email@example.com"
+RECIPIENT_EMAIL = "babhinay27@gmail.com"  # Current recipient
 ```
 
 ## File Structure
@@ -120,13 +125,28 @@ monitoring_agent/
 
 ## How Detection Works
 
+### JavaScript Rendering
+The IEEE Xplore page is heavily JavaScript-dependent, so the script uses **Playwright** (a headless browser) to:
+- Render the page as a real browser would
+- Wait for JavaScript content to load
+- Extract the fully-rendered HTML
+
+If Playwright fails or isn't available, the script falls back to standard HTTP requests.
+
+### Detection Logic
 The script:
-1. Locates the "All Proceedings" section on the IEEE Xplore page
+1. Searches the entire rendered page for proceeding entries
 2. Extracts individual proceeding entries (each entry represents one conference year)
 3. Checks each entry to see if it contains both:
    - The year "2025"
    - The keyword "ICONAT" (case-insensitive)
 4. Only triggers if both appear in the **same entry** (avoiding false positives)
+
+Example of what it's looking for:
+```
+2025 4th International Conference for Advancement in Technology (ICONAT)
+Location: GOA, India
+```
 
 ## State Management
 
@@ -147,32 +167,70 @@ When a notification is sent, it updates to:
 
 This prevents duplicate notifications. The file is automatically committed back to the repository when updated.
 
+## Technical Details
+
+### Dependencies
+- **requests**: For HTTP requests (fallback method)
+- **beautifulsoup4**: For HTML parsing
+- **lxml**: Parser backend for BeautifulSoup
+- **playwright**: Headless browser for JavaScript rendering
+
+### Workflow Steps
+GitHub Actions performs these steps:
+1. Checkout the repository
+2. Set up Python 3.11
+3. Install Python dependencies (`pip install -r requirements.txt`)
+4. Install Playwright browsers (`playwright install chromium`)
+5. Run `checker.py` with email credentials from GitHub Secrets
+6. If `state.json` is modified, commit and push it back to the repository
+
 ## Troubleshooting
 
 ### Email Not Sending
 
-- Verify `EMAIL_ADDRESS` and `EMAIL_APP_PASSWORD` secrets are set correctly
+- Verify `EMAIL_ADDRESS` and `EMAIL_APP_PASSWORD` secrets are set correctly in GitHub repository settings
 - Ensure 2-Step Verification is enabled on your Google Account
+- Verify the App Password was generated correctly (16 characters)
 - Check GitHub Actions logs for specific error messages
 
 ### Script Not Finding Proceedings
 
-- The page structure may have changed. Check the logs in GitHub Actions
-- You may need to update the HTML parsing logic in `checker.py`
+- Check GitHub Actions logs for the "Found X proceeding entries" message
+- The script currently detects 2024, 2023, and 2022 ICONAT proceedings successfully
+- If the page structure changes significantly, you may need to update the parsing logic in `checker.py`
+- Playwright timeout errors mean the page took too long to load (try increasing the timeout in `fetch_page()`)
 
 ### Workflow Not Running
 
 - Ensure GitHub Actions is enabled in repository settings
+- The workflow runs at **00:00 UTC** and **12:00 UTC** (convert to your local timezone)
 - Check that the cron schedule is valid
-- Manual triggers via `workflow_dispatch` should always work
+- Manual triggers via `workflow_dispatch` should always work (Actions tab → Run workflow)
+- GitHub may delay scheduled runs by up to 15 minutes during high load
+
+### Playwright Installation Issues
+
+If Playwright fails to install in GitHub Actions:
+- The workflow automatically installs Playwright browsers
+- If it fails, check the "Install Playwright browsers" step in the workflow logs
+- The script will fall back to `requests` (which won't render JavaScript content)
 
 ## Ethics & Rate Limiting
 
-- Runs only every 12 hours (respectful frequency)
+- Runs only twice per day (very respectful frequency)
 - Uses a realistic User-Agent string
 - Does not bypass authentication or paywalls
 - Only reads publicly available content
+- Uses appropriate wait times for JavaScript content to load
 - Complies with IEEE Xplore terms of service
+
+## Current Status
+
+✅ **Active and Monitoring**
+- Currently monitoring for: **2025 4th International Conference for Advancement in Technology (ICONAT)**
+- Successfully detecting: 2024, 2023, and 2022 ICONAT proceedings
+- Email notifications will be sent to: `babhinay27@gmail.com`
+- Next scheduled runs: **00:00 UTC** and **12:00 UTC** daily
 
 ## License
 
