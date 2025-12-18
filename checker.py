@@ -86,19 +86,31 @@ def fetch_page(url: str) -> Optional[str]:
             logger.info(f"Fetching page with Playwright (JS rendering): {url}")
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                page.set_extra_http_headers(
-                    {
-                        "User-Agent": USER_AGENT,
-                        "Accept-Language": "en-US,en;q=0.5",
-                    }
+                context = browser.new_context(
+                    user_agent=USER_AGENT,
+                    locale="en-US",
                 )
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                # Wait a bit for content to load
-                page.wait_for_timeout(3000)
+                page = context.new_page()
+                
+                # Navigate with longer timeout and simpler wait strategy
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                logger.info("Page loaded, waiting for content...")
+                
+                # Wait for specific content to appear (year numbers like 2022, 2023, 2024)
+                # Try to wait for any proceeding entry to appear
+                try:
+                    # Wait for text containing a year pattern
+                    page.wait_for_selector("text=/202[2-4]/", timeout=10000)
+                    logger.info("Found proceeding content on page")
+                except Exception:
+                    logger.warning("Timeout waiting for specific content, continuing anyway")
+                
+                # Additional wait for JS to finish
+                page.wait_for_timeout(5000)
+                
                 html_content = page.content()
                 browser.close()
-                logger.info("Successfully fetched page with Playwright")
+                logger.info(f"Successfully fetched page with Playwright (content length: {len(html_content)})")
                 return html_content
         except Exception as e:
             logger.warning(f"Playwright fetch failed: {e}. Falling back to requests.")
@@ -242,94 +254,18 @@ def parse_proceedings(html_content: str) -> List[str]:
             )
             # Log a sample of the page text for debugging
             if page_text:
-                sample = page_text[:500] if len(page_text) > 500 else page_text
-                logger.debug(f"Page text sample: {sample}")
+                # Log first 30 lines to help debug
+                sample_lines = lines[:30] if len(lines) > 30 else lines
+                logger.info("First 30 lines of page text:")
+                for i, line in enumerate(sample_lines):
+                    logger.info(f"  Line {i}: {line[:150]}")
             return []
 
-        # Extract individual proceeding entries
-        # Each entry should contain both a year and conference-related keywords
-        entries = []
-
-        # Strategy 1: Look for list items (common pattern for proceedings lists)
-        list_items = all_proceedings_section.find_all("li")
-        if list_items:
-            for li in list_items:
-                text = li.get_text(separator=" ", strip=True)
-                # Check if it looks like a proceeding entry (contains year and conference keywords)
-                if text and len(text) > 10:
-                    if any(year in text for year in ["2022", "2023", "2024", "2025"]):
-                        entries.append(text)
-
-        # Strategy 2: Look for divs or paragraphs that contain proceeding information
-        if not entries:
-            for element in all_proceedings_section.find_all(["div", "p", "article"]):
-                text = element.get_text(separator=" ", strip=True)
-                # Look for entries containing both a year and conference-related terms
-                if (
-                    text and len(text) > 20
-                ):  # Longer minimum to avoid headers/navigation
-                    has_year = any(
-                        year in text for year in ["2022", "2023", "2024", "2025"]
-                    )
-                    has_conference = any(
-                        keyword.lower() in text.lower()
-                        for keyword in [
-                            "ICONAT",
-                            "International Conference",
-                            "Conference for Advancement",
-                        ]
-                    )
-                    if has_year and has_conference:
-                        entries.append(text)
-
-        # Strategy 3: Fallback - extract text blocks and filter by patterns
-        if not entries:
-            text_content = all_proceedings_section.get_text(separator="\n", strip=True)
-            lines = [line.strip() for line in text_content.split("\n") if line.strip()]
-            # Group consecutive lines that might form a complete entry
-            current_entry = []
-            for line in lines:
-                # Check if line contains year or conference keywords
-                if any(
-                    indicator in line
-                    for indicator in [
-                        "2022",
-                        "2023",
-                        "2024",
-                        "2025",
-                        "ICONAT",
-                        "iconat",
-                        "International Conference",
-                        "Location:",
-                    ]
-                ):
-                    current_entry.append(line)
-                    # If we have multiple lines or a substantial entry, save it
-                    if len(current_entry) >= 2 or len(" ".join(current_entry)) > 30:
-                        entry_text = " ".join(current_entry)
-                        if any(
-                            year in entry_text
-                            for year in ["2022", "2023", "2024", "2025"]
-                        ):
-                            entries.append(entry_text)
-                        current_entry = []
-                elif current_entry:
-                    # Non-matching line after building entry - save what we have
-                    entry_text = " ".join(current_entry)
-                    if any(
-                        year in entry_text for year in ["2022", "2023", "2024", "2025"]
-                    ):
-                        entries.append(entry_text)
-                    current_entry = []
-
-            # Save any remaining entry
-            if current_entry:
-                entry_text = " ".join(current_entry)
-                if any(year in entry_text for year in ["2022", "2023", "2024", "2025"]):
-                    entries.append(entry_text)
-
-        logger.info(f"Found {len(entries)} proceeding entries")
-        return entries
+        logger.info(f"Found {len(unique_entries)} proceeding entries")
+        # Log the entries for debugging
+        for i, entry in enumerate(unique_entries):
+            logger.info(f"  Entry {i+1}: {entry[:200]}")
+        return unique_entries
 
     except Exception as e:
         logger.error(f"Error parsing HTML: {e}")
