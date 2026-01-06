@@ -17,7 +17,7 @@ This project uses GitHub Actions to automatically check the IEEE Xplore website 
 3. **Page Fetching**: Uses **Playwright (headless browser)** to render JavaScript content and fetch the IEEE Xplore page. Falls back to `requests` if Playwright fails.
 4. **HTML Parsing**: BeautifulSoup extracts individual proceeding entries from the rendered page content
 5. **Detection**: Checks if any proceeding entry contains both "2025" and "ICONAT" in the same entry (e.g., "2025 4th International Conference for Advancement in Technology (ICONAT)")
-6. **Notification**: If found, sends an email via Gmail SMTP to `babhinay27@gmail.com`
+6. **Notification**: If found, sends an email via Gmail SMTP to `xxxxxx@email.com`
 7. **State Update**: Updates `state.json` to mark as notified and commits it back to the repository
 
 ## Setup Instructions
