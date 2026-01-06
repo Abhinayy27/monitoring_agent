@@ -6,9 +6,9 @@ An automated monitoring agent that tracks when IEEE Xplore publishes the 2025 pr
 
 This project uses GitHub Actions to automatically check the IEEE Xplore website twice daily (00:00 and 12:00 UTC) for the publication of ICONAT 2025 proceedings. When detected, it sends an email notification and updates its state to prevent duplicate notifications.
 
-**Target Page:** https://ieeexplore.ieee.org/xpl/conhome/1845744/all-proceedings
+**Target Page:** https://ieeexplore.ieee.org/xpl/conhome/1845744/all-proceedings (In my case)
 
-**Email Recipient:** babhinay27@gmail.com
+**Email Recipient:** xxxxx@email.com
 
 ## How It Works
 
