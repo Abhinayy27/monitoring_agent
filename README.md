@@ -107,7 +107,7 @@ TARGET_KEYWORD = "ICONAT"
 Edit `checker.py` and change the recipient:
 
 ```python
-RECIPIENT_EMAIL = "babhinay27@gmail.com"  # Current recipient
+RECIPIENT_EMAIL = "xxxxx@email.com"  # Current recipient
 ```
 
 ## File Structure
