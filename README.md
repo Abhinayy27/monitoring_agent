@@ -229,7 +229,7 @@ If Playwright fails to install in GitHub Actions:
 ✅ **Active and Monitoring**
 - Currently monitoring for: **2025 4th International Conference for Advancement in Technology (ICONAT)**
 - Successfully detecting: 2024, 2023, and 2022 ICONAT proceedings
-- Email notifications will be sent to: `babhinay27@gmail.com`
+- Email notifications will be sent to: `xxxxxx@email.com`
 - Next scheduled runs: **00:00 UTC** and **12:00 UTC** daily
 
 ## License
