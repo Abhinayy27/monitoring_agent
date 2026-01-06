@@ -2,7 +2,7 @@
 
 An automated monitoring agent that tracks when IEEE Xplore publishes the 2025 proceedings for the International Conference for Advancement in Technology (ICONAT) and sends a one-time email notification.
 
-Reason why I made this - 
+
 
 ## Overview
 
