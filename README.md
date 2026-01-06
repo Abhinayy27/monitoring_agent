@@ -2,6 +2,8 @@
 
 An automated monitoring agent that tracks when IEEE Xplore publishes the 2025 proceedings for the International Conference for Advancement in Technology (ICONAT) and sends a one-time email notification.
 
+Reason why I made this - 
+
 ## Overview
 
 This project uses GitHub Actions to automatically check the IEEE Xplore website twice daily (00:00 and 12:00 UTC) for the publication of ICONAT 2025 proceedings. When detected, it sends an email notification and updates its state to prevent duplicate notifications.
