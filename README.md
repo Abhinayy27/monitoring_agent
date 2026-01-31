@@ -27,7 +27,7 @@ This project uses GitHub Actions to automatically check the IEEE Xplore website 
 ### 1. Clone or Fork This Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Abhinayy27/monitoring_agent.git
 cd monitoring_agent
 ```
 
